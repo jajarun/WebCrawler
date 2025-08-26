@@ -25,11 +25,11 @@ class Crawler:
 
     init_url: str = ''
 
-    table:CrawlerTable = field(default_factory={})
+    table:CrawlerTable
 
-    __clicked_elements:Set[str] = field(default_factory=set)
+    __clicked_elements:Set[str]
 
-    __crawled_urls:Set[str] = field(default_factory=set)
+    __crawled_urls:Set[str]
 
     def __init__(self, browserContext:BrowserContext,url:str):
         self.browserContext = browserContext
