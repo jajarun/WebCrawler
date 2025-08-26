@@ -1,0 +1,12 @@
+[project]
+name = "webcrawler"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4>=4.13.5",
+    "openpyxl>=3.1.5",
+    "pandas>=2.3.2",
+    "playwright>=1.54.0",
+]
