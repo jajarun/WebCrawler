@@ -7,7 +7,7 @@ import json
 import asyncio
 import re
 import os
-from config.config import EXPORT_PATH
+from config import EXPORT_PATH
 
 @dataclass
 class CrawlerTable:
