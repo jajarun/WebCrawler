@@ -1,12 +1,13 @@
 from playwright.async_api import BrowserContext, Page
 from typing import Optional,List,Set
-from bs4 import BeautifulSoup
-from src.utils.functions import deduplicate_text,check_main_domain
+from src.utils.functions import deduplicate_text,check_main_domain,remove_html_tags
 from dataclasses import field,dataclass,asdict
 import pandas as pd
-import time
-import re
+import json
 import asyncio
+import re
+import os
+from config.config import EXPORT_PATH
 
 @dataclass
 class CrawlerTable:
@@ -20,7 +21,7 @@ class webContent:
     title:str = ''
     contents:List[str] = field(default_factory=list)
 
-class AsyncCrawler:
+class AsyncCrawlerPro:
 
     browserContext: Optional[BrowserContext] = None
 
@@ -28,28 +29,49 @@ class AsyncCrawler:
 
     table:CrawlerTable
 
+    output_file:str = ''
+
     __clicked_elements:Set[str]
 
     __crawled_urls:Set[str]
 
-    def __init__(self, browserContext:BrowserContext,url:str):
+    def __init__(self, browserContext:BrowserContext,url:str,output_file:str):
         self.browserContext = browserContext
         self.init_url = url
+        self.output_file = output_file
         self.table = CrawlerTable()
         self.__clicked_elements = set[str]()
         self.__crawled_urls = set[str]()
 
-    #获取网页内容
+    #获取网页内容(带文字坐标位置和字号)
     async def get_content(self,page:Page)->webContent:
-        page_content = await page.content()
-        soup = BeautifulSoup(page_content, 'html.parser')
-        content_list = soup.get_text(separator='<|>',strip=True).split('<|>')
-        #文本去重
-        content_list = deduplicate_text(content_list)
-        #过滤掉纯符号文本
-        content_list = [text for text in content_list if not re.match(r'^[^\w\s]+$', text)]
-        title = soup.title.string if soup.title else "无标题"
-        return webContent(title,contents=content_list)
+        elements = await page.locator('body *').element_handles()
+        data = {}
+        for element in elements:
+            # 检查元素是否是 HTMLElement
+            is_html_element = await element.evaluate("node => node instanceof HTMLElement")
+            if is_html_element:
+                tag_name = await element.evaluate("node => node.tagName.toLowerCase()")
+                if tag_name in ['script', 'iframe', 'style']:
+                    continue
+                text = await element.inner_text()
+                text = text.strip()
+                if re.match(r'^[^\w\s]+$', text) or not text:
+                    continue
+                # 检查是否有子元素，如果有则跳过
+                has_children = await element.evaluate("node => node.children.length > 0")
+                if has_children:
+                    innerHtml = await element.inner_html()
+                    text = remove_html_tags(innerHtml)
+                    if not text:
+                        continue
+                bounding_box = await element.bounding_box()
+                # 获取文本的字号
+                if bounding_box:
+                    font_size = await element.evaluate("node => window.getComputedStyle(node).fontSize")
+                    data[text] = json.dumps({"text":text,"font_size":font_size}|bounding_box,ensure_ascii=False)
+        title = await page.title()
+        return webContent(title,contents=list(data.values()))
     
     #获取所有链接
     async def get_link_urls(self,page:Page):
@@ -86,9 +108,13 @@ class AsyncCrawler:
                 if width and height and (int(width) < 50 or int(height) < 50):
                     continue
                 
-                imageUrls.append(src)
+                bounding_box = await image.bounding_box()
+                image_data = {"src":src}
+                if bounding_box:
+                    image_data |= bounding_box
+                imageUrls.append(json.dumps(image_data,ensure_ascii=False))
         
-        imageUrls = deduplicate_text(imageUrls)
+        # imageUrls = deduplicate_text(imageUrls)
         return imageUrls
     
     #爬取子链接页面
@@ -152,7 +178,7 @@ class AsyncCrawler:
 
     def export_table(self):
         df = pd.DataFrame(asdict(self.table))
-        df.to_excel('output.xlsx', index=False)
+        df.to_excel(os.path.join(EXPORT_PATH,self.output_file), index=False)
 
     async def craw_page(self,url:str,page:Page):
         print("开始爬取页面:",url)
